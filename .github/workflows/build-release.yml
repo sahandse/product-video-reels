@@ -1,9 +1,16 @@
-name: Build Plugin ZIP
+name: Build product-video-reels Installable ZIP
 
 on:
   push:
-    tags:
-      - 'v*'
+    branches: [main]
+    paths:
+      - '**/*.php'
+      - 'assets/**'
+      - 'includes/**'
+      - 'languages/**'
+      - 'readme.txt'
+      - 'README.md'
+      - '.github/workflows/build-release.yml'
   workflow_dispatch:
 
 permissions:
@@ -12,30 +19,42 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Prepare plugin
+      - uses: actions/checkout@v4
+      - name: Read version
+        id: version
+        shell: bash
         run: |
-          mkdir -p build/product-video-reels
-          rsync -av --exclude='.git' --exclude='.github' --exclude='build' ./ build/product-video-reels/
-
-      - name: Create ZIP
+          VERSION=$(grep 'Version:' product-video-reels.php | head -1 | sed 's/.*Version:[[:space:]]*//')
+          test -n "$VERSION"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+      - name: PHP syntax check
+        shell: bash
         run: |
+          set -e
+          find . -type f -name '*.php' -not -path './vendor/*' -print0 | xargs -0 -n1 php -l
+      - name: Build ZIP
+        shell: bash
+        run: |
+          rm -rf dist build
+          mkdir -p dist build/product-video-reels
+          rsync -a --exclude='.git' --exclude='.github' --exclude='build' --exclude='dist' ./ build/product-video-reels/
           cd build
-          zip -r product-video-reels.zip product-video-reels
-
+          zip -qr ../dist/product-video-reels.zip product-video-reels
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
-          name: product-video-reels
-          path: build/product-video-reels.zip
-
-      - name: Publish GitHub Release
-        if: startsWith(github.ref, 'refs/tags/v')
-        uses: softprops/action-gh-release@v2
-        with:
-          files: build/product-video-reels.zip
-          generate_release_notes: true
+          name: product-video-reels-v${{ steps.version.outputs.version }}
+          path: dist/product-video-reels.zip
+      - name: Create or update release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.version.outputs.version }}
+        shell: bash
+        run: |
+          TAG="product-video-reels-v${VERSION}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/product-video-reels.zip --clobber
+          else
+            gh release create "$TAG" dist/product-video-reels.zip --title "product-video-reels v${VERSION}" --notes "Installable WordPress ZIP for product-video-reels v${VERSION}."
+          fi
