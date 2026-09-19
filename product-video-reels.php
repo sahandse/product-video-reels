@@ -3,7 +3,7 @@
  * Plugin Name: ویدئوی محصول و ریلز
  * Plugin URI: https://github.com/sahandse/product-video-reels
  * Description: افزودن ویدئوی افقی، عمودی و ریلز به محصولات ووکامرس از کتابخانه رسانه یا لینک خارجی.
- * Version: 1.0.1
+ * Version: 1.1.0
  * Author: Sahand Rezvan
  * Author URI: https://github.com/sahandse
  * Text Domain: product-video-reels
@@ -15,10 +15,11 @@
 defined('ABSPATH') || exit;
 
 final class PVR_Plugin {
-    const VERSION = '1.0.1';
+    const VERSION = '1.1.0';
     const OPTION  = 'pvr_settings';
     const META_URL = '_pvr_video_url';
     const META_LAYOUT = '_pvr_video_layout';
+    const META_URLS = '_pvr_video_urls';
 
     public function __construct() {
         add_action('before_woocommerce_init', [$this, 'declare_hpos']);
@@ -108,8 +109,14 @@ final class PVR_Plugin {
     }
 
     public function admin_assets($hook) {
-        if (false === strpos($hook, 'product-video-reels')) return;
+        $screen = function_exists('get_current_screen') ? get_current_screen() : null;
+        $is_product = $screen && 'product' === $screen->post_type;
+        if (false === strpos($hook, 'product-video-reels') && !$is_product) return;
         wp_enqueue_style('pvr-admin', plugin_dir_url(__FILE__) . 'assets/admin.css', [], self::VERSION);
+        if ($is_product) {
+            wp_enqueue_media();
+            wp_enqueue_script('pvr-admin', plugin_dir_url(__FILE__) . 'assets/admin.js', ['jquery'], self::VERSION, true);
+        }
     }
 
     public function settings_page() {
@@ -167,8 +174,8 @@ final class PVR_Plugin {
                     </section>
 
                     <section class="pvr-card">
-                        <h2>وضعیت توسعه</h2>
-                        <p>فیلد لینک ویدئو و حالت نمایش محصول آماده است. انتخاب مستقیم از Media Library و گالری چندویدئویی در نسخه‌های بعدی همین Repo تکمیل می‌شود.</p>
+                        <h2>گالری چندویدئویی</h2>
+                        <p>در صفحه ویرایش هر محصول می‌توانید چند ویدئو را از Media Library انتخاب کنید یا لینک مستقیم وارد کنید.</p>
                     </section>
                 </div>
 
@@ -197,6 +204,12 @@ final class PVR_Plugin {
                 'reels' => 'ریلز',
             ],
         ]);
+
+        echo '<p class="form-field"><label for="' . esc_attr(self::META_URLS) . '">گالری ویدئوها</label>';
+        echo '<textarea id="' . esc_attr(self::META_URLS) . '" name="' . esc_attr(self::META_URLS) . '" rows="5" style="width:50%" placeholder="هر خط یک لینک ویدئو">' . esc_textarea(implode("\n",(array)get_post_meta(get_the_ID(),self::META_URLS,true))) . '</textarea>';
+        echo '<button type="button" class="button pvr-media-select" style="margin-right:8px">انتخاب از Media Library</button>';
+        echo '<span class="description">چند فایل ویدئویی را انتخاب کنید؛ هر فایل در یک خط ذخیره می‌شود.</span></p>';
+
     }
 
     public function save_product_fields($post_id) {
@@ -212,10 +225,13 @@ final class PVR_Plugin {
 
         if (isset($_POST[self::META_LAYOUT])) {
             $layout = sanitize_text_field(wp_unslash($_POST[self::META_LAYOUT]));
-            if (!in_array($layout, ['', 'horizontal','vertical','reels'], true)) {
-                $layout = '';
-            }
+            if (!in_array($layout, ['', 'horizontal','vertical','reels'], true)) $layout = '';
             update_post_meta($post_id, self::META_LAYOUT, $layout);
+        }
+
+        if (isset($_POST[self::META_URLS])) {
+            $urls = array_values(array_filter(array_map('esc_url_raw', preg_split('/\r\n|\r|\n/', wp_unslash($_POST[self::META_URLS])))));
+            update_post_meta($post_id, self::META_URLS, $urls);
         }
     }
 
@@ -226,12 +242,13 @@ final class PVR_Plugin {
         global $product;
         if (!$product) return;
 
-        $url = get_post_meta($product->get_id(), self::META_URL, true);
-        if (!$url) return;
+        $urls = (array) get_post_meta($product->get_id(), self::META_URLS, true);
+        $legacy = get_post_meta($product->get_id(), self::META_URL, true);
+        if ($legacy) array_unshift($urls,$legacy);
+        $urls = array_values(array_unique(array_filter(array_map('esc_url_raw',$urls))));
+        if (!$urls) return;
 
-        $layout = get_post_meta($product->get_id(), self::META_LAYOUT, true);
-        if (!$layout) $layout = $s['default_layout'];
-
+        $layout = get_post_meta($product->get_id(), self::META_LAYOUT, true) ?: $s['default_layout'];
         $attrs = [];
         if ('yes' === $s['autoplay']) $attrs[] = 'autoplay';
         if ('yes' === $s['muted']) $attrs[] = 'muted';
@@ -239,13 +256,17 @@ final class PVR_Plugin {
         if ('yes' === $s['controls']) $attrs[] = 'controls';
 
         $aspect = 'horizontal' === $layout ? '16/9' : '9/16';
-
         echo '<div class="pvr-product-video pvr-' . esc_attr($layout) . '" style="--pvr-accent:' . esc_attr($s['accent']) . ';max-width:' . esc_attr((int)$s['max_width']) . 'px">';
-        echo '<video playsinline ' . esc_attr(implode(' ', $attrs)) . ' style="width:100%;aspect-ratio:' . esc_attr($aspect) . ';object-fit:cover;border-radius:18px;background:#000">';
-        echo '<source src="' . esc_url($url) . '">';
-        echo '</video>';
+        echo '<div class="pvr-video-gallery" style="display:flex;gap:12px;overflow-x:auto;scroll-snap-type:x mandatory">';
+        foreach($urls as $url){
+            echo '<video playsinline preload="metadata" ' . esc_attr(implode(' ', $attrs)) . ' style="flex:0 0 100%;width:100%;aspect-ratio:' . esc_attr($aspect) . ';object-fit:cover;border-radius:18px;background:#000;scroll-snap-align:start">';
+            echo '<source src="' . esc_url($url) . '"></video>';
+        }
+        echo '</div>';
+        if(count($urls)>1) echo '<small style="display:block;margin-top:6px;color:#777">برای دیدن ویدئوی بعدی ورق بزنید ←</small>';
         echo '</div>';
     }
+
 }
 
 new PVR_Plugin();
