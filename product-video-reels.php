@@ -3,7 +3,7 @@
  * Plugin Name: ویدئوی محصول و ریلز
  * Plugin URI: https://github.com/sahandse/product-video-reels
  * Description: افزودن ویدئوی افقی، عمودی و ریلز به محصولات ووکامرس از کتابخانه رسانه یا لینک خارجی.
- * Version: 1.0.0
+ * Version: 1.0.1
  * Author: Sahand Rezvan
  * Author URI: https://github.com/sahandse
  * Text Domain: product-video-reels
@@ -15,7 +15,7 @@
 defined('ABSPATH') || exit;
 
 final class PVR_Plugin {
-    const VERSION = '1.0.0';
+    const VERSION = '1.0.1';
     const OPTION  = 'pvr_settings';
     const META_URL = '_pvr_video_url';
     const META_LAYOUT = '_pvr_video_layout';
@@ -93,6 +93,10 @@ final class PVR_Plugin {
     }
 
     public function admin_menu() {
+        if (function_exists('s_store_register_submenu')) {
+            s_store_register_submenu('product-video-reels', 'ویدئوی محصول و ریلز', [$this, 'settings_page'], 'manage_woocommerce', 'ویدئوی محصول و ریلز');
+            return;
+        }
         add_submenu_page(
             'woocommerce',
             'ویدئوی محصول و ریلز',
