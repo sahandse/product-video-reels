@@ -1,0 +1,41 @@
+name: Build Plugin ZIP
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Prepare plugin
+        run: |
+          mkdir -p build/product-video-reels
+          rsync -av --exclude='.git' --exclude='.github' --exclude='build' ./ build/product-video-reels/
+
+      - name: Create ZIP
+        run: |
+          cd build
+          zip -r product-video-reels.zip product-video-reels
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: product-video-reels
+          path: build/product-video-reels.zip
+
+      - name: Publish GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: build/product-video-reels.zip
+          generate_release_notes: true
